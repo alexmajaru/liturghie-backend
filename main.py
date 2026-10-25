@@ -14,10 +14,6 @@ groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 # Initializam clientul Groq folosind cheia secreta din mediul cloud
 groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-
-# @app.get("/")
-# def home():
-#    return {"status": "Serverul Liturghie pe Koyeb este online si functioneaza!"}
  
 def get_db_connection():
     if not DATABASE_URL:
