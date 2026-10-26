@@ -47,7 +47,7 @@ def read_root():
         db_status = f"Eroare conexiune DB: {str(e)}"
 
     return {
-        "status": "Serverul Liturghie este online și funcționează!",
+        "status": "Serverul Liturghie este online și funcționează!!!",
         "database": db_status,
         "groq_activ": bool(groq_client)
     }
