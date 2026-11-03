@@ -101,7 +101,6 @@ async def admin_panel(biserica_id: str = "default"):
     """
     return HTMLResponse(content=html_content)
 
-// Endpoint-ul WebSocket
 @app.websocket("/ws/audio")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
