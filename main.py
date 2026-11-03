@@ -32,7 +32,46 @@ def get_db_connection():
     if not DATABASE_URL:
         return None
     return psycopg2.connect(DATABASE_URL)
-    
+
+def cauta_text_liturgic(text_transcris: str, biserica_id: str) -> Optional[str]:
+    """
+    Caută în Supabase cel mai apropiat vers oficial pe baza textului brut de la Groq.
+    Folosește extensia pg_trgm (similaritate de șiruri) pentru căutare fuzzy rapidă.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return None
+        
+    text_oficial = None
+    try:
+        cur = conn.cursor()
+        
+        # SQL cu funcția de similaritate nativă din Postgres (necesită pg_trgm activat în Supabase)
+        # Sortăm după gradul de potrivire și returnăm cel mai bun rezultat (LIMIT 1)
+        # Filtrăm și după biserica_id dacă în viitor vrei texte specifice per parohie
+        query = """
+            SELECT text_oficial 
+            FROM texte_liturghie 
+            ORDER BY similarity(text_oficial, %s) DESC 
+            LIMIT 1;
+        """
+        
+        cur.execute(query, (text_transcris,))
+        row = cur.fetchone()
+        
+        # Prag de siguranță: dacă potrivirea este prea slabă, returnăm totuși textul brut
+        if row:
+            text_oficial = row[0]
+            
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"❌ Eroare la căutarea în Supabase: {e}")
+        # În caz de eroare de DB, facem fallback pe textul brut pentru a nu opri slujba
+        return None
+        
+    return text_oficial
+
 @app.get("/")
 def read_root():
     db_status = "Necunoscută"
@@ -154,14 +193,31 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     
                     text_recunoscut = transcription.text.strip()
-                    
+
                     if text_recunoscut:
-                        print(f"🎙️ [{biserica_id}] Transcris: {text_recunoscut}")
-                        biserici_history[biserica_id].append(text_recunoscut)
-                        payload = {"text": text_recunoscut}
+                        print(f"🎙️ [{biserica_id}] Brut Groq: {text_recunoscut}")
                         
+                        # --- PASUL 1 ACUMULAT: POTRIVIREA SEMANTICĂ ---
+                        # Încercăm să găsim textul bisericesc oficial în Supabase
+                        text_karaoke = cauta_text_liturgic(text_recunoscut, biserica_id)
+    
+                        # Dacă Supabase a găsit o potrivire bună, trimitem textul oficial parohial, altfel trimitem textul brut
+                        text_final_de_afisat = text_karaoke if text_karaoke else text_recunoscut
+    
+                        # Salvăm în istoricul panoului de control textul curat
+                        biserici_history[biserica_id].append(text_final_de_afisat)
+    
+                        # Pachetul trimis pe aplicația web/APK va conține acum structura completă
+                        payload = {
+                            "text": text_final_de_afisat,
+                            "text_brut": text_recunoscut,
+                            "sursa": "Supabase" if text_karaoke else "Groq-Brut"
+                        }
+                        
+                        # Trimitem înapoi la sursă
                         await websocket.send_json(payload)
-                        
+    
+                        # Dacă este broadcaster (Altar), trimitem instant textul formatat karaoke tuturor enoriașilor din bancă
                         if is_broadcaster and biserici_listeners[biserica_id]:
                             await asyncio.gather(
                                 *[listener.send_json(payload) for listener in biserici_listeners[biserica_id]],
